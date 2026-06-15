@@ -1,0 +1,689 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/AuthProvider';
+import { Loader2, ArrowUpCircle, ArrowDownCircle, CreditCard, X } from 'lucide-react';
+
+import { AdminHeader } from './components/AdminHeader';
+import { PaymentStats } from './components/PaymentStats';
+import { PaymentCard } from './components/PaymentCard';
+import { WithdrawalCard } from './components/WithdrawalCard';
+
+interface PaymentRequest {
+    id: string;
+    user_id: string;
+    profile_user_id: string;
+    user_name: string;
+    user_phone: string;
+    method: string;
+    amount: number;
+    card_number: string;
+    status: 'pending' | 'awaiting_review' | 'awaiting_confirmation' | 'completed' | 'expired' | 'cancelled';
+    created_at: string;
+    expires_at: string;
+    screenshot_url?: string;
+}
+
+interface WithdrawRequest {
+    id: string;
+    user_id: string;
+    profile_user_id: string;
+    method: string;
+    amount: number;
+    card_number: string;
+    card_expiry: string;
+    status: 'pending' | 'completed' | 'cancelled';
+    created_at: string;
+}
+
+interface TelegramSettings {
+    paymentsChatId: string;
+    analysisChatId: string;
+    updatedAt: string | null;
+    telegramAdminIds: string[];
+    telegramAdminIdsUpdatedAt: string | null;
+    hardcodedAdminIds: string[];
+}
+
+const parseTelegramAdminIdsInput = (value: string): string[] => {
+    return Array.from(
+        new Set(
+            value
+                .split(/[\n,;]+/)
+                .map(item => item.trim())
+                .filter(Boolean)
+        )
+    );
+};
+
+const formatAmount = (value: number): string => {
+    return value.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+};
+
+const formatDate = (dateStr: string): string => {
+    const date = new Date(dateStr);
+    return date.toLocaleString('uz-UZ', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+};
+
+const getStatusColor = (status: string) => {
+    switch (status) {
+        case 'pending': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+        case 'awaiting_review': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+        case 'awaiting_confirmation': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+        case 'completed': return 'bg-green-500/20 text-green-400 border-green-500/30';
+        case 'cancelled': return 'bg-red-500/20 text-red-400 border-red-500/30';
+        case 'expired': return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+        default: return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+    }
+};
+
+const getStatusLabel = (status: string) => {
+    switch (status) {
+        case 'pending': return 'Kutilmoqda';
+        case 'awaiting_review': return 'Tasdiqlash kutilmoqda';
+        case 'awaiting_confirmation': return 'Tasdiqlash kutilmoqda';
+        case 'completed': return 'Tasdiqlangan';
+        case 'cancelled': return 'Rad etilgan';
+        case 'expired': return 'Muddati o\'tgan';
+        default: return status;
+    }
+};
+
+const getMethodColor = (method: string) => {
+    switch (method.toLowerCase()) {
+        case 'uzcard': return 'bg-gradient-to-r from-blue-600 to-blue-700';
+        case 'humo': return 'bg-gradient-to-r from-green-600 to-green-700';
+        case 'payme': return 'bg-gradient-to-r from-cyan-500 to-cyan-600';
+        case 'click': return 'bg-gradient-to-r from-blue-500 to-indigo-600';
+        default: return 'bg-gradient-to-r from-gray-600 to-gray-700';
+    }
+};
+
+export default function AdminPage() {
+    const { user, loading } = useAuth();
+    const router = useRouter();
+    const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+    const [checking, setChecking] = useState(true);
+    const [payments, setPayments] = useState<PaymentRequest[]>([]);
+    const [withdrawals, setWithdrawals] = useState<WithdrawRequest[]>([]);
+    const [loadingPayments, setLoadingPayments] = useState(false);
+    const [processingId, setProcessingId] = useState<string | null>(null);
+    const [filter, setFilter] = useState<'all' | 'pending' | 'completed' | 'cancelled'>('all');
+    const [previewImage, setPreviewImage] = useState<string | null>(null);
+    const [mainTab, setMainTab] = useState<'deposits' | 'withdrawals'>('deposits');
+    const [telegramSettings, setTelegramSettings] = useState<TelegramSettings>({
+        paymentsChatId: '',
+        analysisChatId: '',
+        updatedAt: null,
+        telegramAdminIds: [],
+        telegramAdminIdsUpdatedAt: null,
+        hardcodedAdminIds: []
+    });
+    const [telegramAdminIdsInput, setTelegramAdminIdsInput] = useState('');
+    const [loadingSettings, setLoadingSettings] = useState(false);
+    const [savingSettings, setSavingSettings] = useState(false);
+    const [settingsError, setSettingsError] = useState<string>('');
+    const [settingsSuccess, setSettingsSuccess] = useState<string>('');
+
+    const fetchPayments = useCallback(async (options?: { silent?: boolean }) => {
+        if (!user?.id) return;
+        const silent = options?.silent ?? false;
+        if (!silent) {
+            setLoadingPayments(true);
+        }
+        try {
+            const response = await fetch('/api/admin/payments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id })
+            });
+            const data = await response.json();
+            if (data.payments) {
+                setPayments(data.payments);
+            }
+        } catch (err) {
+            console.error('Error fetching payments:', err);
+        } finally {
+            if (!silent) {
+                setLoadingPayments(false);
+            }
+        }
+    }, [user?.id]);
+
+    const fetchWithdrawals = useCallback(async () => {
+        if (!user?.id) return;
+        try {
+            const response = await fetch('/api/admin/withdrawals', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id })
+            });
+            const data = await response.json();
+            if (data.withdrawals) {
+                setWithdrawals(data.withdrawals);
+            }
+        } catch (err) {
+            console.error('Error fetching withdrawals:', err);
+        }
+    }, [user?.id]);
+
+    const fetchTelegramSettings = useCallback(async () => {
+        if (!user?.id) return;
+
+        setLoadingSettings(true);
+        setSettingsError('');
+        try {
+            const response = await fetch('/api/admin/telegram-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load settings');
+            }
+
+            if (data.settings) {
+                const hardcodedAdminIds = Array.isArray(data.settings.hardcodedAdminIds) ? data.settings.hardcodedAdminIds : [];
+                const allAdminIds = Array.isArray(data.settings.telegramAdminIds) ? data.settings.telegramAdminIds : [];
+                const settings = {
+                    paymentsChatId: data.settings.paymentsChatId || '',
+                    analysisChatId: data.settings.analysisChatId || '',
+                    updatedAt: data.settings.updatedAt || null,
+                    telegramAdminIds: allAdminIds,
+                    telegramAdminIdsUpdatedAt: data.settings.telegramAdminIdsUpdatedAt || null,
+                    hardcodedAdminIds
+                };
+                setTelegramSettings(settings);
+                // Textarea only shows the user-managed (non-hardcoded) IDs
+                const userManagedIds = allAdminIds.filter((id: string) => !hardcodedAdminIds.includes(id));
+                setTelegramAdminIdsInput(userManagedIds.join('\n'));
+            }
+        } catch (err) {
+            console.error('Error fetching telegram settings:', err);
+            setSettingsError('Sozlamalarni yuklashda xatolik yuz berdi');
+        } finally {
+            setLoadingSettings(false);
+        }
+    }, [user?.id]);
+
+    const fetchAll = useCallback(async () => {
+        await Promise.all([fetchPayments(), fetchWithdrawals(), fetchTelegramSettings()]);
+    }, [fetchPayments, fetchWithdrawals, fetchTelegramSettings]);
+
+    useEffect(() => {
+        const checkAdmin = async () => {
+            if (loading) return;
+
+            if (!user) {
+                router.push('/');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/admin/check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ authId: user.id })
+                });
+                const data = await response.json();
+
+                if (data.isAdmin) {
+                    setIsAdmin(true);
+                    fetchAll();
+                } else {
+                    setIsAdmin(false);
+                }
+            } catch {
+                setIsAdmin(false);
+            } finally {
+                setChecking(false);
+            }
+        };
+
+        checkAdmin();
+    }, [user, loading, router, fetchAll]);
+
+    const handleApprove = async (paymentId: string) => {
+        if (!user?.id) return;
+        setProcessingId(paymentId);
+        const currentScrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+        try {
+            const response = await fetch('/api/admin/payments/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id, paymentId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                await fetchPayments({ silent: true });
+                requestAnimationFrame(() => {
+                    window.scrollTo({ top: currentScrollY, behavior: 'auto' });
+                });
+            }
+        } catch (err) {
+            console.error('Error approving:', err);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleReject = async (paymentId: string) => {
+        if (!user?.id) return;
+        setProcessingId(paymentId);
+        const currentScrollY = typeof window !== 'undefined' ? window.scrollY : 0;
+        try {
+            const response = await fetch('/api/admin/payments/reject', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id, paymentId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                await fetchPayments({ silent: true });
+                requestAnimationFrame(() => {
+                    window.scrollTo({ top: currentScrollY, behavior: 'auto' });
+                });
+            }
+        } catch (err) {
+            console.error('Error rejecting:', err);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleApproveWithdrawal = async (withdrawalId: string) => {
+        if (!user?.id) return;
+        setProcessingId(withdrawalId);
+        try {
+            const response = await fetch('/api/admin/withdrawals/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id, withdrawalId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                fetchWithdrawals();
+            }
+        } catch (err) {
+            console.error('Error approving withdrawal:', err);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleRejectWithdrawal = async (withdrawalId: string) => {
+        if (!user?.id) return;
+        setProcessingId(withdrawalId);
+        try {
+            const response = await fetch('/api/admin/withdrawals/reject', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ adminUserId: user.id, withdrawalId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                fetchWithdrawals();
+            }
+        } catch (err) {
+            console.error('Error rejecting withdrawal:', err);
+        } finally {
+            setProcessingId(null);
+        }
+    };
+
+    const handleSaveTelegramSettings = async () => {
+        if (!user?.id) return;
+
+        setSavingSettings(true);
+        setSettingsError('');
+        setSettingsSuccess('');
+
+        try {
+            const response = await fetch('/api/admin/telegram-settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    adminUserId: user.id,
+                    paymentsChatId: telegramSettings.paymentsChatId,
+                    analysisChatId: telegramSettings.analysisChatId,
+                    telegramAdminIds: telegramSettings.telegramAdminIds
+                })
+            });
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to save settings');
+            }
+
+            if (data.settings) {
+                const hardcodedAdminIds = Array.isArray(data.settings.hardcodedAdminIds) ? data.settings.hardcodedAdminIds : [];
+                const allAdminIds = Array.isArray(data.settings.telegramAdminIds) ? data.settings.telegramAdminIds : [];
+                const settings = {
+                    paymentsChatId: data.settings.paymentsChatId || '',
+                    analysisChatId: data.settings.analysisChatId || '',
+                    updatedAt: data.settings.updatedAt || null,
+                    telegramAdminIds: allAdminIds,
+                    telegramAdminIdsUpdatedAt: data.settings.telegramAdminIdsUpdatedAt || null,
+                    hardcodedAdminIds
+                };
+                setTelegramSettings(settings);
+                const userManagedIds = allAdminIds.filter((id: string) => !hardcodedAdminIds.includes(id));
+                setTelegramAdminIdsInput(userManagedIds.join('\n'));
+            }
+
+            setSettingsSuccess('Sozlamalar saqlandi');
+        } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : 'Saqlashda xatolik yuz berdi';
+            setSettingsError(errorMessage);
+        } finally {
+            setSavingSettings(false);
+        }
+    };
+
+    if (loading || checking) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-[#0f0f0f] to-[#1a1a2e] flex items-center justify-center">
+                <Loader2 className="w-10 h-10 text-white animate-spin" />
+            </div>
+        );
+    }
+
+    if (!isAdmin) {
+        return (
+            <div className="min-h-screen bg-gradient-to-b from-[#0f0f0f] to-[#1a1a2e] flex flex-col items-center justify-center p-8">
+                <h1 className="text-white text-6xl font-bold mb-4">404</h1>
+                <p className="text-gray-400 text-xl">Sahifa topilmadi</p>
+            </div>
+        );
+    }
+
+    const filteredPayments = payments.filter(p => {
+        if (filter === 'all') return true;
+        if (filter === 'pending') return p.status === 'pending' || p.status === 'awaiting_confirmation' || p.status === 'awaiting_review';
+        return p.status === filter;
+    });
+
+    const missingTelegramChatIds: string[] = [];
+    if (!telegramSettings.paymentsChatId.trim()) {
+        missingTelegramChatIds.push('Pul kiritish chat ID');
+    }
+    if (!telegramSettings.analysisChatId.trim()) {
+        missingTelegramChatIds.push('Signal chat ID');
+    }
+    if (telegramSettings.telegramAdminIds.length === 0) {
+        missingTelegramChatIds.push('Admin Telegram ID');
+    }
+
+    return (
+        <div className="min-h-screen bg-gradient-to-b from-[#0f0f0f] to-[#1a1a2e]">
+            <AdminHeader loading={loadingPayments} onRefresh={fetchAll} />
+
+            {/* Main Tabs */}
+            <div className="max-w-7xl mx-auto px-4 pt-6">
+                <div className="flex gap-2 p-1 bg-white/5 rounded-2xl border border-white/10 mb-6">
+                    <button
+                        onClick={() => setMainTab('deposits')}
+                        className={`relative flex-1 flex items-center justify-center gap-3 py-3 px-4 rounded-xl font-medium transition-all ${mainTab === 'deposits'
+                            ? 'bg-gradient-to-r from-green-500 to-emerald-600 text-white shadow-lg'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                    >
+                        <ArrowDownCircle className="w-5 h-5" />
+                        <span>Pul kiritish</span>
+                        {payments.filter(p => p.status === 'pending' || p.status === 'awaiting_confirmation' || p.status === 'awaiting_review').length > 0 && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-green-400 rounded-full" />
+                        )}
+                    </button>
+                    <button
+                        onClick={() => setMainTab('withdrawals')}
+                        className={`relative flex-1 flex items-center justify-center gap-3 py-3 px-4 rounded-xl font-medium transition-all ${mainTab === 'withdrawals'
+                            ? 'bg-gradient-to-r from-orange-500 to-red-600 text-white shadow-lg'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                    >
+                        <ArrowUpCircle className="w-5 h-5" />
+                        <span>Pul chiqarish</span>
+                        {withdrawals.filter(w => w.status === 'pending').length > 0 && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full" />
+                        )}
+                    </button>
+                </div>
+            </div>
+
+            <div className="max-w-7xl mx-auto px-4 pb-6">
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-4 md:p-5">
+                    <div className="flex flex-col gap-1 mb-4">
+                        <h2 className="text-white text-lg font-semibold">Telegram Chat ID sozlamalari</h2>
+                        <p className="text-gray-400 text-sm">Bu qiymatlar `.env` o&apos;rniga ishlatiladi</p>
+                        {telegramSettings.updatedAt && (
+                            <p className="text-gray-500 text-xs">
+                                Oxirgi yangilanish: {formatDate(telegramSettings.updatedAt)}
+                            </p>
+                        )}
+                        {telegramSettings.telegramAdminIdsUpdatedAt && (
+                            <p className="text-gray-500 text-xs">
+                                Admin ID yangilanishi: {formatDate(telegramSettings.telegramAdminIdsUpdatedAt)}
+                            </p>
+                        )}
+                    </div>
+
+                    {!loadingSettings && missingTelegramChatIds.length > 0 && (
+                        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                            <p className="text-amber-300 text-sm font-semibold">Telegram yuborish to&apos;liq sozlanmagan</p>
+                            <p className="text-amber-200/90 text-sm mt-1">
+                                To&apos;ldirilmagan maydonlar: {missingTelegramChatIds.join(', ')}. Ushbu maydonlar saqlanmaguncha tegishli Telegram xabarlari yuborilmaydi.
+                            </p>
+                        </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-gray-300 text-sm mb-2">Pul kiritish chat ID</label>
+                            <input
+                                type="text"
+                                value={telegramSettings.paymentsChatId}
+                                onChange={(e) => setTelegramSettings(prev => ({ ...prev, paymentsChatId: e.target.value }))}
+                                placeholder="-1001234567890"
+                                className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/60"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-gray-300 text-sm mb-2">Signal chat ID</label>
+                            <input
+                                type="text"
+                                value={telegramSettings.analysisChatId}
+                                onChange={(e) => setTelegramSettings(prev => ({ ...prev, analysisChatId: e.target.value }))}
+                                placeholder="-1001234567890"
+                                className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/60"
+                            />
+                        </div>
+                        {telegramSettings.hardcodedAdminIds.length > 0 && (
+                            <div className="md:col-span-2">
+                                <label className="block text-gray-300 text-sm mb-2">
+                                    Asosiy admin ID&apos;lar (.env dan) <span className="text-amber-400 text-xs">— o&apos;zgartirib bo&apos;lmaydi</span>
+                                </label>
+                                <div className="flex flex-wrap gap-2 px-4 py-3 rounded-xl bg-amber-500/5 border border-amber-500/30">
+                                    {telegramSettings.hardcodedAdminIds.map(id => (
+                                        <span
+                                            key={id}
+                                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-amber-200 text-sm font-mono"
+                                            title="Bu ID .env faylida belgilangan, panel orqali olib tashlab bo'lmaydi"
+                                        >
+                                            🔒 {id}
+                                        </span>
+                                    ))}
+                                </div>
+                                <p className="text-amber-200/70 text-xs mt-2">
+                                    Bu ID&apos;lar `.env` (`ADMIN_ID`) faylida hardcode qilingan va panel orqali o&apos;zgartirilmaydi.
+                                </p>
+                            </div>
+                        )}
+                        <div className="md:col-span-2">
+                            <label className="block text-gray-300 text-sm mb-2">Qo&apos;shimcha admin Telegram ID (har qatorda bittadan)</label>
+                            <textarea
+                                value={telegramAdminIdsInput}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setTelegramAdminIdsInput(value);
+                                    const userManagedIds = parseTelegramAdminIdsInput(value);
+                                    setTelegramSettings(prev => ({
+                                        ...prev,
+                                        telegramAdminIds: Array.from(new Set([...prev.hardcodedAdminIds, ...userManagedIds]))
+                                    }));
+                                }}
+                                placeholder={`1207001217\n123456789`}
+                                rows={4}
+                                className="w-full px-4 py-3 rounded-xl bg-black/20 border border-white/10 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-green-500/60"
+                            />
+                            <p className="text-gray-500 text-xs mt-2">
+                                Ushbu ID&apos;lar Telegramdagi qabul/rad etish tugmalarini bosishi va bot admin komandalarini ishlatishi mumkin.
+                            </p>
+                        </div>
+                    </div>
+
+                    {(settingsError || settingsSuccess) && (
+                        <p className={`text-sm mt-3 ${settingsError ? 'text-red-400' : 'text-green-400'}`}>
+                            {settingsError || settingsSuccess}
+                        </p>
+                    )}
+
+                    <div className="pt-4">
+                        <button
+                            onClick={handleSaveTelegramSettings}
+                            disabled={savingSettings || loadingSettings}
+                            className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-medium transition-colors"
+                        >
+                            {(savingSettings || loadingSettings) && <Loader2 className="w-4 h-4 animate-spin" />}
+                            Saqlash
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Deposits Content */}
+            {mainTab === 'deposits' && (
+                <>
+                    <div className="max-w-7xl mx-auto px-4 pb-6">
+                        <PaymentStats payments={payments} formatAmount={formatAmount} />
+
+                        {/* Filter Tabs */}
+                        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                            {[
+                                { key: 'all', label: 'Hammasi' },
+                                { key: 'pending', label: 'Kutilmoqda' },
+                                { key: 'completed', label: 'Tasdiqlangan' },
+                                { key: 'cancelled', label: 'Rad etilgan' }
+                            ].map(tab => (
+                                <button
+                                    key={tab.key}
+                                    onClick={() => setFilter(tab.key as typeof filter)}
+                                    className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${filter === tab.key
+                                        ? 'bg-white text-black'
+                                        : 'bg-white/10 text-gray-400 hover:bg-white/20'
+                                        }`}
+                                >
+                                    {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Payment Cards */}
+                        {loadingPayments ? (
+                            <div className="flex items-center justify-center py-20">
+                                <Loader2 className="w-8 h-8 text-white animate-spin" />
+                            </div>
+                        ) : filteredPayments.length === 0 ? (
+                            <div className="text-center py-20">
+                                <div className="w-16 h-16 mx-auto mb-4 bg-white/5 rounded-full flex items-center justify-center">
+                                    <CreditCard className="w-8 h-8 text-gray-600" />
+                                </div>
+                                <p className="text-gray-500">So&apos;rovlar topilmadi</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {filteredPayments.map(payment => (
+                                    <PaymentCard
+                                        key={payment.id}
+                                        payment={payment}
+                                        processingId={processingId}
+                                        onApprove={handleApprove}
+                                        onReject={handleReject}
+                                        onViewScreenshot={setPreviewImage}
+                                        formatAmount={formatAmount}
+                                        formatDate={formatDate}
+                                        getMethodColor={getMethodColor}
+                                        getStatusColor={getStatusColor}
+                                        getStatusLabel={getStatusLabel}
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Image Preview Modal */}
+                    {previewImage && (
+                        <div
+                            className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+                            onClick={() => setPreviewImage(null)}
+                        >
+                            <div className="relative max-w-2xl max-h-[80vh]">
+                                <button
+                                    onClick={() => setPreviewImage(null)}
+                                    className="absolute -top-10 right-0 p-2 text-white hover:bg-white/20 rounded-lg"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
+                                <img
+                                    src={previewImage}
+                                    alt="Payment screenshot"
+                                    className="rounded-xl max-h-[80vh] object-contain"
+                                />
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+
+            {/* Withdrawals Content */}
+            {mainTab === 'withdrawals' && (
+                <div className="max-w-7xl mx-auto px-4 pb-6">
+                    {withdrawals.length === 0 ? (
+                        <div className="text-center py-20">
+                            <div className="w-16 h-16 mx-auto mb-4 bg-white/5 rounded-full flex items-center justify-center">
+                                <ArrowUpCircle className="w-8 h-8 text-gray-600" />
+                            </div>
+                            <p className="text-gray-500">Chiqarish so&apos;rovlari topilmadi</p>
+                            <p className="text-gray-600 text-sm mt-2">Hozircha foydalanuvchilar pul chiqarish so&apos;rovi yubormagan</p>
+                        </div>
+                    ) : (
+                        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                            {withdrawals.map((withdrawal) => (
+                                <WithdrawalCard
+                                    key={withdrawal.id}
+                                    withdrawal={withdrawal}
+                                    processingId={processingId}
+                                    onApprove={handleApproveWithdrawal}
+                                    onReject={handleRejectWithdrawal}
+                                    formatAmount={formatAmount}
+                                    formatDate={formatDate}
+                                    getMethodColor={getMethodColor}
+                                    getStatusColor={getStatusColor}
+                                    getStatusLabel={getStatusLabel}
+                                />
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+}
