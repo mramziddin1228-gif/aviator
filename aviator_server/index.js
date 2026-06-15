@@ -87,7 +87,82 @@ bot.setMyCommands([
     { command: 'getchatid', description: "Depozit chat ID ni ko'rsatish" },
     { command: 'status', description: 'Bot holati' },
     { command: 'help', description: 'Yordam' },
+    { command: 'addgmadmin', description: "O'yin admin qo'shish (6 xonali ID)" },
+    { command: 'readgmadmin', description: "O'yin admin o'chirish" },
 ]).catch(err => console.error('Bot commands menu xatosi:', err.message));
+
+// ============================================================
+// /addgmadmin <6_xonali_id> — o'yin admin qo'shish (admins jadvaliga)
+// ============================================================
+bot.onText(/^\/addgmadmin(?:@\w+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isPrivateChat(msg)) return;
+    if (!isMainAdmin(userId)) {
+        return bot.sendMessage(chatId, ' Sizda ruxsat yo\'q!');
+    }
+
+    const gameUserId = (match && match[1]) ? String(match[1]).trim() : null;
+    if (!gameUserId || !/^\d{6}$/.test(gameUserId)) {
+        return bot.sendMessage(chatId, '⚠️ 6 xonali o\'yin user ID kiriting!\n\nMisol: `/addgmadmin 334123`', { parse_mode: 'Markdown' });
+    }
+
+    try {
+        const { data: existing } = await supabase
+            .from('admins')
+            .select('id')
+            .eq('user_id', gameUserId)
+            .single();
+
+        if (existing) {
+            return bot.sendMessage(chatId, `ℹ️ \`${gameUserId}\` allaqachon admin.`);
+        }
+
+        const { error } = await supabase
+            .from('admins')
+            .insert({ user_id: gameUserId });
+
+        if (error) throw error;
+
+        bot.sendMessage(chatId, `✅ O\'yin admin qo\'shildi: \`${gameUserId}\``, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error('Error adding game admin:', err);
+        bot.sendMessage(chatId, `❌ Xato: ${err.message}`);
+    }
+});
+
+// ============================================================
+// /readgmadmin <6_xonali_id> — o'yin adminini o'chirish (admins jadvalidan)
+// ============================================================
+bot.onText(/^\/readgmadmin(?:@\w+)?(?:\s+(.+))?$/i, async (msg, match) => {
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
+
+    if (!isPrivateChat(msg)) return;
+    if (!isMainAdmin(userId)) {
+        return bot.sendMessage(chatId, ' Sizda ruxsat yo\'q!');
+    }
+
+    const gameUserId = (match && match[1]) ? String(match[1]).trim() : null;
+    if (!gameUserId || !/^\d{6}$/.test(gameUserId)) {
+        return bot.sendMessage(chatId, '⚠️ 6 xonali o\'yin user ID kiriting!\n\nMisol: `/readgmadmin 334123`', { parse_mode: 'Markdown' });
+    }
+
+    try {
+        const { error } = await supabase
+            .from('admins')
+            .delete()
+            .eq('user_id', gameUserId);
+
+        if (error) throw error;
+
+        bot.sendMessage(chatId, `✅ O\'yin admin o\'chirildi: \`${gameUserId}\``, { parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error('Error removing game admin:', err);
+        bot.sendMessage(chatId, `❌ Xato: ${err.message}`);
+    }
+});
 
 // ============================================================
 // Yordamchi funksiyalar
