@@ -110,24 +110,27 @@ bot.onText(/^\/addgmadmin(?:@\w+)?(?:\s+(.+))?$/i, async (msg, match) => {
 
     try {
         const { data: existing } = await supabase
-            .from('admins')
-            .select('id')
-            .eq('user_id', gameUserId)
+            .from("admins")
+            .select("id")
+            .eq("user_id", gameUserId)
             .single();
 
         if (existing) {
             return bot.sendMessage(chatId, `ℹ️ \`${gameUserId}\` allaqachon admin.`);
         }
 
+        // Upsert into profiles first (FK constraint)
+        await supabase.from("profiles").upsert({ user_id: gameUserId }, { onConflict: "user_id" });
+
         const { error } = await supabase
-            .from('admins')
-            .insert({ user_id: gameUserId });
+            .from("admins")
+            .insert({ user_id: gameUserId, added_by: userId });
 
         if (error) throw error;
 
-        bot.sendMessage(chatId, `✅ O\'yin admin qo\'shildi: \`${gameUserId}\``, { parse_mode: 'Markdown' });
+        bot.sendMessage(chatId, `✅ O"yin admin qo"shildi: \`${gameUserId}\``, { parse_mode: "Markdown" });
     } catch (err) {
-        console.error('Error adding game admin:', err);
+        console.error("Error adding game admin:", err);
         bot.sendMessage(chatId, `❌ Xato: ${err.message}`);
     }
 });
