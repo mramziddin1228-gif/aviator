@@ -107,7 +107,7 @@ const getMethodColor = (method: string) => {
 };
 
 export default function AdminPage() {
-    const { user, loading } = useAuth();
+    const { user, loading, gameUserId } = useAuth();
     const router = useRouter();
     const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
     const [checking, setChecking] = useState(true);
@@ -142,7 +142,7 @@ export default function AdminPage() {
             const response = await fetch('/api/admin/payments', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminUserId: user.id })
+                body: JSON.stringify({ adminUserId: gameUserId })
             });
             const data = await response.json();
             if (data.payments) {
@@ -163,7 +163,7 @@ export default function AdminPage() {
             const response = await fetch('/api/admin/withdrawals', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminUserId: user.id })
+                body: JSON.stringify({ adminUserId: gameUserId })
             });
             const data = await response.json();
             if (data.withdrawals) {
@@ -183,7 +183,7 @@ export default function AdminPage() {
             const response = await fetch('/api/admin/telegram-settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminUserId: user.id })
+                body: JSON.stringify({ adminUserId: gameUserId })
             });
             const data = await response.json();
 
@@ -260,7 +260,7 @@ export default function AdminPage() {
             const response = await fetch('/api/admin/payments/approve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminUserId: user.id, paymentId })
+                body: JSON.stringify({ adminUserId: gameUserId, paymentId })
             });
             const data = await response.json();
             if (data.success) {
@@ -284,7 +284,7 @@ export default function AdminPage() {
             const response = await fetch('/api/admin/payments/reject', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminUserId: user.id, paymentId })
+                body: JSON.stringify({ adminUserId: gameUserId, paymentId })
             });
             const data = await response.json();
             if (data.success) {

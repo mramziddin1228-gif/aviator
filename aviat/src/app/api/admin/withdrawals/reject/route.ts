@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { checkAdminByAuthId } from '@/lib/adminCheck';
+import { checkAdminByUserId } from '@/lib/adminCheck';
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -13,7 +13,7 @@ export async function POST(request: NextRequest) {
         const { adminUserId, withdrawalId } = body;
 
         // Verify admin (check both GAME_ADMIN_ID and admins table)
-        const isAdmin = await checkAdminByAuthId(adminUserId);
+        const isAdmin = await checkAdminByUserId(adminUserId);
         if (!adminUserId || !isAdmin) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }

@@ -159,8 +159,6 @@ export default function RegistrationPage() {
                         phone: fullPhone,
                         email: email || null,
                         password: password,
-                        country: selectedCountry.code,
-                        currency: selectedCountry.currency,
                         userId: uniqueUserId,
                         userAgent: navigator.userAgent,
                         platform: navigator.platform,
@@ -181,8 +179,6 @@ export default function RegistrationPage() {
                     data: {
                         user_id: uniqueUserId,
                         phone: fullPhone,
-                        country: selectedCountry.code,
-                        currency: selectedCountry.currency,
                         email: email || null,
                         registration_type: email ? 'email' : 'phone',
                     }
@@ -204,8 +200,6 @@ export default function RegistrationPage() {
                         user_id: uniqueUserId,
                         phone: fullPhone,
                         email: email || null,
-                        country: selectedCountry.code,
-                        currency: selectedCountry.currency,
                         balance: 0,
                         created_at: new Date().toISOString(),
                     });
@@ -225,8 +219,6 @@ export default function RegistrationPage() {
                             userId: uniqueUserId,
                             phone: fullPhone,
                             email: email || null,
-                            country: selectedCountry.code,
-                            currency: selectedCountry.currency,
                         }),
                     });
                 } catch (telegramError) {

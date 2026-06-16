@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
-import { checkAdminByAuthId } from '@/lib/adminCheck';
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { checkAdminByUserId } from "@/lib/adminCheck";
 
 const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,26 +12,24 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const { adminUserId } = body;
 
-        // Verify admin (check both GAME_ADMIN_ID and admins table)
-        const isAdmin = await checkAdminByAuthId(adminUserId);
+        const isAdmin = await checkAdminByUserId(adminUserId);
         if (!adminUserId || !isAdmin) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+            return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
         }
 
-        // Get all user profiles
         const { data: users, error } = await supabase
-            .from('profiles')
-            .select('id, user_id, phone, balance, created_at')
-            .order('created_at', { ascending: false });
+            .from("profiles")
+            .select("id, user_id, phone, balance, created_at")
+            .order("created_at", { ascending: false });
 
         if (error) {
-            console.error('Error fetching users:', error);
-            return NextResponse.json({ error: 'Database error' }, { status: 500 });
+            console.error("Error fetching users:", error);
+            return NextResponse.json({ error: "Database error" }, { status: 500 });
         }
 
         return NextResponse.json({ users: users || [] });
     } catch (error) {
-        console.error('Error:', error);
-        return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+        console.error("Error:", error);
+        return NextResponse.json({ error: "Internal error" }, { status: 500 });
     }
 }

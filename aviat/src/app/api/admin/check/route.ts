@@ -1,27 +1,31 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminByAuthId, checkAdminByUserId } from '@/lib/adminCheck';
+import { NextRequest, NextResponse } from "next/server";
+import { checkAdminByAuthId, checkAdminByUserId } from "@/lib/adminCheck";
 
 export async function POST(request: NextRequest) {
     try {
         const body = await request.json();
-        const { userId, authId } = body;
+        const { authId, userId, adminUserId } = body;
 
-        // Check if user is admin (only from admins table)
+        // Try multiple ways to verify admin
         let isAdmin = false;
 
-        // First try by authId (UUID)
+        // Check by Supabase auth UUID (used by admin pages)
         if (authId) {
             isAdmin = await checkAdminByAuthId(authId);
         }
 
-        // Also try by userId (6-digit) if not found
-        if (!isAdmin && userId && userId !== '000000') {
+        // Check by 6-digit game user ID (used by game page)
+        if (!isAdmin && userId) {
             isAdmin = await checkAdminByUserId(userId);
         }
 
+        // Check by adminUserId (backward compat)
+        if (!isAdmin && adminUserId) {
+            isAdmin = await checkAdminByUserId(adminUserId);
+        }
+
         return NextResponse.json({ isAdmin });
-    } catch (error) {
-        console.error('Admin check error:', error);
-        return NextResponse.json({ isAdmin: false });
+    } catch (error: any) {
+        return NextResponse.json({ error: error.message, isAdmin: false }, { status: 500 });
     }
 }

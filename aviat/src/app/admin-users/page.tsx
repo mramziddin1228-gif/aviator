@@ -30,7 +30,7 @@ const formatDate = (dateStr: string): string => {
 };
 
 export default function AdminUsersPage() {
-    const { user, loading } = useAuth();
+    const { user, loading, gameUserId } = useAuth();
     const router = useRouter();
     const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
     const [checking, setChecking] = useState(true);
@@ -45,7 +45,7 @@ export default function AdminUsersPage() {
             const response = await fetch('/api/admin/users', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ adminUserId: user.id })
+                body: JSON.stringify({ adminUserId: gameUserId })
             });
             const data = await response.json();
             if (data.users) {
@@ -98,7 +98,7 @@ export default function AdminUsersPage() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    adminUserId: user.id,
+                    adminUserId: gameUserId,
                     targetUserId,
                     action,
                     amount: action === 'set' ? undefined : amount,

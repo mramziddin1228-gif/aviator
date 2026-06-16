@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminByAuthId } from '@/lib/adminCheck';
+import { checkAdminByUserId } from '@/lib/adminCheck';
 import { approvePaymentRequest } from '@/lib/paymentActions';
 
 export async function POST(request: NextRequest) {
@@ -8,7 +8,7 @@ export async function POST(request: NextRequest) {
         const { adminUserId, paymentId } = body;
 
         // Verify admin (check both GAME_ADMIN_ID and admins table)
-        const isAdmin = await checkAdminByAuthId(adminUserId);
+        const isAdmin = await checkAdminByUserId(adminUserId);
         if (!adminUserId || !isAdmin) {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }

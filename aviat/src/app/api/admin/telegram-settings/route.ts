@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { checkAdminByAuthId } from '@/lib/adminCheck';
+import { checkAdminByUserId } from '@/lib/adminCheck';
 import {
     getTelegramSettings,
     isValidTelegramChatId,
@@ -16,7 +16,7 @@ const parseText = (value: unknown): string => (typeof value === 'string' ? value
 
 async function ensureAdmin(adminUserId: string): Promise<boolean> {
     if (!adminUserId) return false;
-    return checkAdminByAuthId(adminUserId);
+    return checkAdminByUserId(adminUserId);
 }
 
 export async function POST(request: NextRequest) {

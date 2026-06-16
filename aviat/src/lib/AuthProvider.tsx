@@ -10,6 +10,7 @@ interface AuthContextType {
     user: User | null;
     session: Session | null;
     loading: boolean;
+    gameUserId: string | null;
     signOut: () => Promise<void>;
 }
 
@@ -17,6 +18,7 @@ const AuthContext = createContext<AuthContextType>({
     user: null,
     session: null,
     loading: true,
+    gameUserId: null,
     signOut: async () => { },
 });
 
@@ -56,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [session, setSession] = useState<Session | null>(null);
     const [loading, setLoading] = useState(true);
+    const [gameUserId, setGameUserId] = useState<string | null>(null);
     const router = useRouter();
     const pathname = usePathname();
 
@@ -117,6 +120,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setUser(currentSession?.user ?? null);
             setLoading(false);
 
+            // Fetch game user_id from profiles
+            if (currentSession?.user) {
+                const { data: profile } = await supabase
+                    .from("profiles")
+                    .select("user_id")
+                    .eq("id", currentSession.user.id)
+                    .single();
+                if (profile?.user_id) {
+                    setGameUserId(profile.user_id);
+                } else if (currentSession.user.user_metadata?.user_id) {
+                    setGameUserId(currentSession.user.user_metadata.user_id);
+                }
+            }
+
             // Handle redirects based on auth state
             if (currentSession?.user) {
                 // User is authenticated
@@ -164,7 +181,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
 
     return (
-        <AuthContext.Provider value={{ user, session, loading, signOut }}>
+        <AuthContext.Provider value={{ user, session, loading, gameUserId, signOut }}>
             {children}
         </AuthContext.Provider>
     );
